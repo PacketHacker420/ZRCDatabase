@@ -1,6 +1,6 @@
 /*
-developer6087 (Main Developer)
-Copyright 2024 all rights reserved by developer6087. DO NOT steal, copy the code, or claim it as your own!
+PacketHacker420 (Main Developer)
+Copyright 2024 all rights reserved by PacketHacker420. DO NOT steal, copy the code, or claim it as your own!
 Please send a message to grimza_zrc on Discord, or join our discord server: its coming very soon
 Thank you.
 
@@ -25,6 +25,11 @@ function chunkString(str, size) {
     const out = [];
     for (let i = 0; i < str.length; i += size) out.push(str.slice(i, i + size));
     return out;
+}
+function stripInternal(data) {
+    if (!data || !("__expiries__" in data)) return data;
+    const { __expiries__, ...rest } = data;
+    return rest;
 }
 
 class BDatabase {
@@ -118,6 +123,19 @@ class BDatabase {
         this.onLoadCallback = callback;
     }
 
+    _checkExpiry(key) {
+        const entry = CACHE.get(this.tableName);
+        const expiryMap = entry?.data?.__expiries__;
+        const expiresAt = expiryMap?.[key];
+        if (expiresAt !== undefined && Date.now() > expiresAt) {
+            delete entry.data[key];
+            delete expiryMap[key];
+            this.saveData();
+            return true;
+        }
+        return false;
+    }
+
     getDBS(table) {
         return world.getDynamicPropertyIds().filter(id => id.startsWith(`${table}:`));
     }
@@ -188,6 +206,7 @@ class BDatabase {
     get(key) {
         const entry = CACHE.get(this.tableName);
         if (!entry?.ready) throw new Error("Data not loaded! Consider using `getAsync` instead!");
+        this._checkExpiry(key);
         return entry.data[key];
     }
 
@@ -195,7 +214,9 @@ class BDatabase {
         const entry = CACHE.get(this.tableName);
         if (entry?.ready) return this.get(key);
         await this.addQueueTask();
-        return CACHE.get(this.tableName)?.ready ? CACHE.get(this.tableName).data[key] : null;
+        if (!CACHE.get(this.tableName)?.ready) return null;
+        this._checkExpiry(key);
+        return CACHE.get(this.tableName).data[key];
     }
 
     getMany(keys) {
@@ -211,14 +232,14 @@ class BDatabase {
     keys() {
         const entry = CACHE.get(this.tableName);
         if (!entry?.ready) throw new Error("Data not loaded! Consider using `keysSync` instead!");
-        return Object.keys(entry.data);
+        return Object.keys(stripInternal(entry.data));
     }
 
     async keysSync() {
         const entry = CACHE.get(this.tableName);
         if (entry?.ready) return this.keys();
         await this.addQueueTask();
-        return CACHE.get(this.tableName)?.ready ? Object.keys(CACHE.get(this.tableName).data) : [];
+        return CACHE.get(this.tableName)?.ready ? Object.keys(stripInternal(CACHE.get(this.tableName).data)) : [];
     }
 
     allKeysP() {
@@ -235,19 +256,20 @@ class BDatabase {
     values() {
         const entry = CACHE.get(this.tableName);
         if (!entry?.ready) throw new Error("Data not loaded! Consider using `valuesSync` instead!");
-        return Object.values(entry.data);
+        return Object.values(stripInternal(entry.data));
     }
 
     async valuesSync() {
         const entry = CACHE.get(this.tableName);
         if (entry?.ready) return this.values();
         await this.addQueueTask();
-        return CACHE.get(this.tableName)?.ready ? Object.values(CACHE.get(this.tableName).data) : [];
+        return CACHE.get(this.tableName)?.ready ? Object.values(stripInternal(CACHE.get(this.tableName).data)) : [];
     }
 
     has(key) {
         const entry = CACHE.get(this.tableName);
         if (!entry?.ready) throw new Error("Data not loaded! Consider using `hasSync` instead!");
+        this._checkExpiry(key);
         return Boolean(entry.data[key]);
     }
 
@@ -255,30 +277,32 @@ class BDatabase {
         const entry = CACHE.get(this.tableName);
         if (entry?.ready) return this.has(key);
         await this.addQueueTask();
-        return CACHE.get(this.tableName)?.ready ? Boolean(CACHE.get(this.tableName).data[key]) : false;
+        if (!CACHE.get(this.tableName)?.ready) return false;
+        this._checkExpiry(key);
+        return Boolean(CACHE.get(this.tableName).data[key]);
     }
 
     find(value) {
-        const data = CACHE.get(this.tableName)?.data ?? {};
+        const data = stripInternal(CACHE.get(this.tableName)?.data ?? {});
         return Object.keys(data).find(key => data[key] === value);
     }
 
     findMany(value) {
-        const data = CACHE.get(this.tableName)?.data ?? {};
+        const data = stripInternal(CACHE.get(this.tableName)?.data ?? {});
         return Object.keys(data).filter(key => data[key] === value);
     }
 
     collection() {
         const entry = CACHE.get(this.tableName);
         if (!entry?.ready) throw new Error("Data not loaded! Consider using `collectionSync` instead!");
-        return entry.data;
+        return stripInternal(entry.data);
     }
 
     async collectionSync() {
         const entry = CACHE.get(this.tableName);
         if (entry?.ready) return this.collection();
         await this.addQueueTask();
-        return CACHE.get(this.tableName)?.ready ? CACHE.get(this.tableName).data : {};
+        return CACHE.get(this.tableName)?.ready ? stripInternal(CACHE.get(this.tableName).data) : {};
     }
 
     async delete(key) {
@@ -298,11 +322,138 @@ class BDatabase {
     }
 
     getKeyByValue(value) {
-        const data = CACHE.get(this.tableName)?.data ?? {};
+        const data = stripInternal(CACHE.get(this.tableName)?.data ?? {});
         for (const key in data) {
             if (data[key] === value) return key;
         }
         return null;
+    }
+
+    // ---- Data utilities ----
+
+    async increment(key, amount = 1) {
+        const entry = CACHE.get(this.tableName);
+        if (!entry?.ready) throw new Error("Data tried to be set before load!");
+        const current = typeof entry.data[key] === "number" ? entry.data[key] : 0;
+        entry.data[key] = current + amount;
+        await this.saveData();
+        return entry.data[key];
+    }
+
+    async decrement(key, amount = 1) {
+        return this.increment(key, -amount);
+    }
+
+    async push(key, value) {
+        const entry = CACHE.get(this.tableName);
+        if (!entry?.ready) throw new Error("Data tried to be set before load!");
+        const arr = Array.isArray(entry.data[key]) ? entry.data[key] : [];
+        arr.push(value);
+        entry.data[key] = arr;
+        await this.saveData();
+        return arr;
+    }
+
+    async pull(key, value) {
+        const entry = CACHE.get(this.tableName);
+        if (!entry?.ready) throw new Error("Data tried to be set before load!");
+        const arr = Array.isArray(entry.data[key]) ? entry.data[key] : [];
+        entry.data[key] = arr.filter(v => v !== value);
+        await this.saveData();
+        return entry.data[key];
+    }
+
+    async expire(key, ms) {
+        const entry = CACHE.get(this.tableName);
+        if (!entry?.ready) throw new Error("Data tried to be set before load!");
+        if (!entry.data.__expiries__) entry.data.__expiries__ = {};
+        entry.data.__expiries__[key] = Date.now() + ms;
+        await this.saveData();
+    }
+
+    // ---- Backup / export / import ----
+
+    exportJSON() {
+        const entry = CACHE.get(this.tableName);
+        if (!entry?.ready) throw new Error("Data not loaded! Consider using `collectionSync` first.");
+        return JSON.stringify(stripInternal(entry.data));
+    }
+
+    async importJSON(json, { merge = false } = {}) {
+        let parsed;
+        try {
+            parsed = JSON.parse(json);
+        } catch {
+            throw new Error("Invalid JSON provided to importJSON.");
+        }
+        const entry = CACHE.get(this.tableName) ?? { data: {}, ready: true };
+        entry.data = merge ? { ...entry.data, ...parsed } : parsed;
+        entry.ready = true;
+        CACHE.set(this.tableName, entry);
+        await this.saveData();
+        return this;
+    }
+
+    backup() {
+        const entry = CACHE.get(this.tableName);
+        if (!entry?.ready) throw new Error("Data not loaded! Consider using `collectionSync` first.");
+        return {
+            tableName: this.tableName,
+            data: JSON.parse(JSON.stringify(stripInternal(entry.data))),
+            timestamp: Date.now()
+        };
+    }
+
+    async restore(backupObj) {
+        if (!backupObj || typeof backupObj.data !== "object") {
+            throw new Error("Invalid backup object provided to restore.");
+        }
+        const entry = CACHE.get(this.tableName) ?? { data: {}, ready: true };
+        entry.data = backupObj.data;
+        entry.ready = true;
+        CACHE.set(this.tableName, entry);
+        await this.saveData();
+        return this;
+    }
+
+    static listTables() {
+        const suffix = "#len";
+        const ids = world.getDynamicPropertyIds().filter(id => id.startsWith(`${HEADER_PREFIX}_`) && id.endsWith(suffix));
+        return ids.map(id => id.slice(HEADER_PREFIX.length + 1, -suffix.length));
+    }
+
+    // ---- Query helpers ----
+
+    filter(predicate) {
+        const collection = this.collection();
+        const result = {};
+        for (const key of Object.keys(collection)) {
+            if (predicate(key, collection[key])) result[key] = collection[key];
+        }
+        return result;
+    }
+
+    sortBy(compareFn) {
+        const collection = this.collection();
+        return Object.entries(collection).sort(([ka, va], [kb, vb]) => compareFn(va, vb, ka, kb));
+    }
+
+    count() {
+        return Object.keys(this.collection()).length;
+    }
+
+    isEmpty() {
+        return this.count() === 0;
+    }
+
+    some(predicate) {
+        const collection = this.collection();
+        return Object.keys(collection).some(key => predicate(key, collection[key]));
+    }
+
+    every(predicate) {
+        const collection = this.collection();
+        return Object.keys(collection).every(key => predicate(key, collection[key]));
     }
 }
 

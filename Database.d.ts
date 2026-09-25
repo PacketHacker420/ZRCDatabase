@@ -193,6 +193,114 @@ declare class BDatabase {
      * @param value Valor a buscar.
      */
     getKeyByValue(value: any): string | null;
+
+    // ---- Utilidades de datos ----
+
+    /**
+     * Incrementa un valor numérico y guarda el cambio.
+     * @param key Clave a incrementar.
+     * @param amount Cantidad a sumar (por defecto 1).
+     * @returns El nuevo valor.
+     */
+    increment(key: string, amount?: number): Promise<number>;
+
+    /**
+     * Decrementa un valor numérico y guarda el cambio.
+     * @param key Clave a decrementar.
+     * @param amount Cantidad a restar (por defecto 1).
+     * @returns El nuevo valor.
+     */
+    decrement(key: string, amount?: number): Promise<number>;
+
+    /**
+     * Agrega un valor a un arreglo (creándolo si no existe) y guarda el cambio.
+     * @param key Clave del arreglo.
+     * @param value Valor a agregar.
+     * @returns El arreglo actualizado.
+     */
+    push(key: string, value: any): Promise<any[]>;
+
+    /**
+     * Elimina todas las apariciones de un valor dentro de un arreglo y guarda el cambio.
+     * @param key Clave del arreglo.
+     * @param value Valor a eliminar.
+     * @returns El arreglo actualizado.
+     */
+    pull(key: string, value: any): Promise<any[]>;
+
+    /**
+     * Programa la expiración (TTL) de una clave; se eliminará automáticamente
+     * la próxima vez que se lea, una vez transcurrido el tiempo indicado.
+     * @param key Clave a expirar.
+     * @param ms Tiempo en milisegundos hasta la expiración.
+     */
+    expire(key: string, ms: number): Promise<void>;
+
+    // ---- Respaldo / exportación / importación ----
+
+    /**
+     * Exporta la tabla completa como una cadena JSON (requiere carga previa).
+     */
+    exportJSON(): string;
+
+    /**
+     * Importa datos desde una cadena JSON, reemplazando o combinando la tabla actual.
+     * @param json Cadena JSON a importar.
+     * @param options Si `merge` es `true`, combina con los datos existentes en vez de reemplazarlos.
+     */
+    importJSON(json: string, options?: { merge?: boolean }): Promise<BDatabase>;
+
+    /**
+     * Genera una instantánea de la tabla actual, incluyendo el nombre de tabla y una marca de tiempo.
+     */
+    backup(): { tableName: string; data: { [key: string]: any }; timestamp: number };
+
+    /**
+     * Restaura la tabla a partir de una instantánea generada por `backup()`.
+     * @param backupObj Instantánea a restaurar.
+     */
+    restore(backupObj: { tableName: string; data: { [key: string]: any }; timestamp: number }): Promise<BDatabase>;
+
+    /**
+     * Lista los nombres de todas las tablas existentes en el almacenamiento del mundo.
+     */
+    static listTables(): string[];
+
+    // ---- Ayudantes de consulta ----
+
+    /**
+     * Filtra las entradas de la tabla según el callback dado.
+     * @param predicate Función que devuelve `true` para conservar la entrada.
+     */
+    filter(predicate: (key: string, value: any) => boolean): { [key: string]: any };
+
+    /**
+     * Devuelve las entradas de la tabla como pares `[clave, valor]`, ordenadas según el comparador.
+     * @param compareFn Función de comparación entre valores (y claves).
+     */
+    sortBy(compareFn: (valueA: any, valueB: any, keyA: string, keyB: string) => number): [string, any][];
+
+    /**
+     * Devuelve la cantidad de claves presentes en la tabla.
+     */
+    count(): number;
+
+    /**
+     * Indica si la tabla no contiene ninguna clave.
+     */
+    isEmpty(): boolean;
+
+    /**
+     * Indica si al menos una entrada cumple con el callback dado.
+     * @param predicate Función de comprobación.
+     */
+    some(predicate: (key: string, value: any) => boolean): boolean;
+
+    /**
+     * Indica si todas las entradas cumplen con el callback dado.
+     * @param predicate Función de comprobación.
+     */
+    every(predicate: (key: string, value: any) => boolean): boolean;
 }
 
 export default BDatabase;
